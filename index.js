@@ -47,7 +47,7 @@ const credsPath = path.join(sessionDir, 'creds.json');
 if (!fs.existsSync(sessionDir)) {
     fs.mkdirSync(sessionDir, { recursive: true });
 }
-async function loadSession() {
+async function downloadSessionData() {
     try {
         if (!config.SESSION_ID) {
             console.log(chalk.yellow('[⚠️] No SESSION_ID - Will use QR/Pairing'));
