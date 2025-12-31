@@ -47,43 +47,95 @@ const credsPath = path.join(sessionDir, 'creds.json');
 if (!fs.existsSync(sessionDir)) {
     fs.mkdirSync(sessionDir, { recursive: true });
 }
-
-async function downloadSessionData() {
-    console.log("Debugging SESSION_ID:", config.SESSION_ID);
-
-    if (!config.SESSION_ID) {
-        console.error('❌ Please add your session to SESSION_ID env !!');
-        return false;
-    }
-
-    const sessdata = config.SESSION_ID.split("")[1];
-
-    if (!sessdata || !sessdata.includes("#")) {
-        console.error('❌ Invalid SESSION_ID format! It must contain both file ID and decryption key.');
-        return false;
-    }
-
-    const [fileID, decryptKey] = sessdata.split("#");
-
+async function loadSession() {
     try {
-        console.log("🔄 Downloading Session...");
-        const file = File.fromURL(`https://mega.nz/file/${fileID}#${decryptKey}`);
+        if (!config.SESSION_ID) {
+            console.log(chalk.yellow('[⚠️] No SESSION_ID - Will use QR/Pairing'));
+            return null;
+        }
 
-        const data = await new Promise((resolve, reject) => {
-            file.download((err, data) => {
-                if (err) reject(err);
-                else resolve(data);
-            });
-        });
+        console.log(chalk.cyan('[🔰] Processing SESSION_ID...'));
 
-        await fs.promises.writeFile(credsPath, data);
-        console.log("🔒 Session Successfully Loaded !!");
-        return true;
+        // ✅ QADEER-XD FORMAT
+        if (config.SESSION_ID.includes('ARSLAN-MD~')) {
+            console.log(chalk.cyan('[🔰] Detected QADEER-XD format session'));
+            const base64Data = config.SESSION_ID.split("ARSLAN-MD~")[1];
+            if (!base64Data) {
+                console.log(chalk.red('[❌] Invalid QADEER-XD format'));
+                return null;
+            }
+            try {
+                const sessionData = Buffer.from(base64Data, 'base64');
+                fs.writeFileSync(credsPath, sessionData);
+                console.log(chalk.green('[✅] ARSLAN-MD session saved!'));
+                return JSON.parse(sessionData.toString());
+            } catch (e) {
+                console.log(chalk.red(`[❌] ARSLAN-MD parse error: ${e.message}`));
+                return null;
+            }
+        }
+        // ✅ PLAIN BASE64 FORMAT
+        else if (config.SESSION_ID.length > 100 && !config.SESSION_ID.includes('http')) {
+            console.log(chalk.cyan('[🔰] Detected direct base64 session'));
+            try {
+                if (!/^[A-Za-z0-9+/=]+$/.test(config.SESSION_ID)) {
+                    console.log(chalk.red('[❌] Invalid base64 format'));
+                    return null;
+                }
+                const sessionData = Buffer.from(config.SESSION_ID, 'base64');
+                fs.writeFileSync(credsPath, sessionData);
+                console.log(chalk.green('[✅] Base64 session saved!'));
+                return JSON.parse(sessionData.toString());
+            } catch (e) {
+                console.log(chalk.red(`[❌] Base64 parse error: ${e.message}`));
+                return null;
+            }
+        }
+        // ✅ DIRECT JSON STRING
+        else if (config.SESSION_ID.startsWith('{')) {
+            console.log(chalk.cyan('[🔰] Detected direct JSON session'));
+            try {
+                const sessionData = JSON.parse(config.SESSION_ID);
+                fs.writeFileSync(credsPath, JSON.stringify(sessionData));
+                console.log(chalk.green('[✅] JSON session saved!'));
+                return sessionData;
+            } catch (e) {
+                console.log(chalk.red(`[❌] JSON parse error: ${e.message}`));
+                return null;
+            }
+        }
+        // ✅ MEGA.NZ URL FORMAT
+        else if (config.SESSION_ID.includes('mega.nz')) {
+            console.log(chalk.cyan('[🔰] Detected MEGA.NZ URL session'));
+            try {
+                const { default: Mega } = require('megajs');
+                const mega = new Mega({});
+                const file = await mega.getFileByUrl(config.SESSION_ID);
+                const data = await new Promise((resolve, reject) => {
+                    file.download((err, data) => {
+                        if (err) reject(err);
+                        else resolve(data);
+                    });
+                });
+                fs.writeFileSync(credsPath, data);
+                console.log(chalk.green('[✅] MEGA session downloaded & saved!'));
+                return JSON.parse(data.toString());
+            } catch (error) {
+                console.log(chalk.red(`[❌] MEGA session error: ${error.message}`));
+                console.log(chalk.yellow('[💡] Install megajs: npm install megajs'));
+                return null;
+            }
+        } else {
+            console.log(chalk.yellow('[⚠️] Unknown SESSION_ID format'));
+            return null;
+        }
+
     } catch (error) {
-        console.error('❌ Failed to download session data:', error);
-        return false;
+        console.log(chalk.red(`[❌] Session load error: ${error.message}`));
+        return null;
     }
 }
+
 
 async function start() {
     try {
